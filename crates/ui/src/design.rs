@@ -91,9 +91,12 @@ pub enum Variant {
 	Ember = 4,
 	Verdant = 5,
 	Afterglow = 6,
+	/// Material 3 Expressive: a tonal scheme generated from the accent colour, with
+	/// spring motion and shape morphing on the controls that support it.
+	Material = 7,
 }
 impl Variant {
-	pub const ALL: [Variant; 7] = [
+	pub const ALL: [Variant; 8] = [
 		Variant::Standard,
 		Variant::Eclipse,
 		Variant::Slate,
@@ -101,6 +104,7 @@ impl Variant {
 		Variant::Ember,
 		Variant::Verdant,
 		Variant::Afterglow,
+		Variant::Material,
 	];
 	pub fn label(self) -> &'static str {
 		match self {
@@ -111,6 +115,7 @@ impl Variant {
 			Variant::Ember => "Ember",
 			Variant::Verdant => "Verdant",
 			Variant::Afterglow => "Afterglow",
+			Variant::Material => "Material",
 		}
 	}
 	/// Stable identifier for persistence.
@@ -123,6 +128,7 @@ impl Variant {
 			Variant::Ember => "ember",
 			Variant::Verdant => "verdant",
 			Variant::Afterglow => "afterglow",
+			Variant::Material => "material",
 		}
 	}
 	/// Keys written by builds that shipped the previous theme names.
@@ -135,6 +141,7 @@ impl Variant {
 			Variant::Ember => "crimson-moon",
 			Variant::Verdant => "forest",
 			Variant::Afterglow => "sunset",
+			Variant::Material => "material",
 		}
 	}
 	pub fn from_key(key: &str) -> Option<Variant> {
@@ -242,7 +249,7 @@ pub struct Palette {
 	pub surface: Color32,
 }
 /// Dark themes' default danger red, tuned for red text and outlines on dark surfaces.
-const DARK_DANGER: Color32 = rgb(0xef5561);
+pub(crate) const DARK_DANGER: Color32 = rgb(0xef5561);
 /// Discord's solid count-badge and LIVE-pill red, deeper so white text stays crisp.
 const BADGE_RED: Color32 = rgb(0xd22d39);
 impl Palette {
@@ -386,8 +393,21 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
 		Variant::Ember => gradient([0x8c2340, 0x140609], 0x41262e),
 		Variant::Verdant => gradient([0x2b6350, 0x081a15], 0x283934),
 		Variant::Afterglow => gradient([0xd9663c, 0x35205e], 0x5b3b40),
+		Variant::Material => {
+			// The accent is the seed: the whole scheme is derived from it, so the
+			// accent override below must not flatten it back to the raw colour.
+			return crate::material::palette(
+				dark,
+				primary_color().unwrap_or(DEFAULT_PRIMARY_COLOR),
+			);
+		}
 	};
 	customize(palette, primary_color())
+}
+/// True while the Material 3 Expressive variant is active: controls then use spring
+/// motion and shape morphing instead of the house geometry.
+pub fn expressive() -> bool {
+	variant() == Variant::Material
 }
 #[derive(Clone, Copy)]
 struct ExtensionPalette {
@@ -836,7 +856,7 @@ fn resolved_colors(dark: bool, variant: Variant) -> Palette {
 		themed_accent = theme.colors[ACCENT_FIELD].is_some();
 		palette = recolor(palette, theme);
 	}
-	if themed_accent {
+	if themed_accent || variant == Variant::Material {
 		palette
 	} else {
 		customize(palette, primary_color())
@@ -2289,7 +2309,14 @@ pub fn switch(
 	let description = description.map(crate::i18n::translate_if_key);
 	let p = palette(ui);
 	let width = ui.available_width();
-	let text_width = (width - 64.0).max(80.0);
+	let expressive = expressive();
+	// Material's switch track is 52x32; the house one is 40x24.
+	let track = if expressive {
+		egui::vec2(52.0, 32.0)
+	} else {
+		egui::vec2(40.0, 24.0)
+	};
+	let text_width = (width - track.x - 24.0).max(80.0);
 	let title = ui.painter().layout(
 		label.to_owned(),
 		FontId::new(16.0, medium_family(ui.ctx())),
@@ -2324,36 +2351,79 @@ pub fn switch(
 		painter.galley(egui::pos2(rect.left(), y), detail, p.muted);
 	}
 	let pill = egui::Rect::from_center_size(
-		egui::pos2(rect.right() - 20.0, rect.top() + 8.0 + title.size().y / 2.0),
-		egui::vec2(40.0, 24.0),
+		egui::pos2(
+			rect.right() - track.x / 2.0,
+			rect.top() + 8.0 + title.size().y / 2.0,
+		),
+		track,
 	);
-	// The knob slides and the track tints over `animation_time`; settled switches are static.
-	let on = ui.ctx().animate_bool_with_time_and_easing(
-		response.id.with("switch"),
-		*enabled,
-		ui.style().animation_time * 1.25,
-		egui::emath::easing::cubic_out,
-	);
-	let mut fill = p.base.lerp_to_gamma(p.accent, on);
-	if !ui.is_enabled() {
-		fill = fill.gamma_multiply(0.4);
+	let radius = (track.y / 2.0) as u8;
+	if expressive {
+		// Spring-driven handle: it overshoots a little when it lands, and grows while pressed.
+		let id = response.id.with("switch");
+		let on = crate::motion::animate(
+			ui.ctx(),
+			id,
+			f32::from(u8::from(*enabled)),
+			crate::motion::Spring::SPATIAL_FAST,
+		);
+		let pressed = crate::motion::animate(
+			ui.ctx(),
+			id.with("press"),
+			f32::from(u8::from(response.is_pointer_button_down_on())),
+			crate::motion::Spring::SPATIAL_FAST,
+		);
+		// Colours never overshoot: only the handle's position and size do.
+		let tint = on.clamp(0.0, 1.0);
+		let mut fill = p.raised.lerp_to_gamma(p.accent, tint);
+		let mut handle = p.muted.lerp_to_gamma(p.accent_text, tint);
+		if !ui.is_enabled() {
+			fill = fill.gamma_multiply(0.4);
+			handle = handle.gamma_multiply(0.4);
+		}
+		painter.rect_filled(pill, radius, fill);
+		painter.rect_stroke(
+			pill,
+			radius,
+			Stroke::new(2.0 * (1.0 - tint), p.muted),
+			egui::StrokeKind::Inside,
+		);
+		let resting = egui::lerp(16.0..=24.0, tint);
+		let diameter = egui::lerp(resting..=28.0, pressed.clamp(0.0, 1.0));
+		let handle_center = egui::pos2(
+			egui::lerp((pill.left() + 16.0)..=(pill.right() - 16.0), on),
+			pill.center().y,
+		);
+		painter.circle_filled(handle_center, diameter / 2.0, handle);
+	} else {
+		// The knob slides and the track tints over `animation_time`; settled switches are static.
+		let on = ui.ctx().animate_bool_with_time_and_easing(
+			response.id.with("switch"),
+			*enabled,
+			ui.style().animation_time * 1.25,
+			egui::emath::easing::cubic_out,
+		);
+		let mut fill = p.base.lerp_to_gamma(p.accent, on);
+		if !ui.is_enabled() {
+			fill = fill.gamma_multiply(0.4);
+		}
+		painter.rect_filled(pill, radius, fill);
+		painter.rect_stroke(
+			pill,
+			radius,
+			Stroke::new(1.0, p.border.lerp_to_gamma(fill, on)),
+			egui::StrokeKind::Inside,
+		);
+		let knob = egui::pos2(
+			egui::lerp((pill.left() + 12.0)..=(pill.right() - 12.0), on),
+			pill.center().y,
+		);
+		painter.circle_filled(knob, 9.0, Color32::WHITE);
 	}
-	painter.rect_filled(pill, 12, fill);
-	painter.rect_stroke(
-		pill,
-		12,
-		Stroke::new(1.0, p.border.lerp_to_gamma(fill, on)),
-		egui::StrokeKind::Inside,
-	);
-	let knob = egui::pos2(
-		egui::lerp((pill.left() + 12.0)..=(pill.right() - 12.0), on),
-		pill.center().y,
-	);
-	painter.circle_filled(knob, 9.0, Color32::WHITE);
 	if response.has_focus() {
 		painter.rect_stroke(
 			pill.expand(3.0),
-			15,
+			radius + 3,
 			Stroke::new(2.0, p.accent),
 			egui::StrokeKind::Outside,
 		);
@@ -2438,12 +2508,27 @@ fn sized_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind, full: bool) ->
 	} else {
 		text.gamma_multiply(0.5)
 	};
+	let radius: u8 = if expressive() {
+		// Pill at rest, squarer while held; the corner radius springs between the two and
+		// overshoots slightly on release.
+		let pill = BUTTON_HEIGHT / 2.0;
+		let held = enabled && response.is_pointer_button_down_on();
+		let t = crate::motion::animate(
+			ui.ctx(),
+			response.id.with("shape"),
+			f32::from(u8::from(held)),
+			crate::motion::Spring::SPATIAL_FAST,
+		);
+		egui::lerp(pill..=12.0, t).clamp(4.0, pill) as u8
+	} else {
+		8
+	};
 	let painter = ui.painter();
-	painter.rect(rect, 8, fill, stroke, egui::StrokeKind::Inside);
+	painter.rect(rect, radius, fill, stroke, egui::StrokeKind::Inside);
 	if response.has_focus() {
 		painter.rect_stroke(
 			rect.expand(2.0),
-			10,
+			radius + 2,
 			Stroke::new(2.0, p.accent),
 			egui::StrokeKind::Outside,
 		);

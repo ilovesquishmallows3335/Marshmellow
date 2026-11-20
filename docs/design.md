@@ -37,6 +37,21 @@ Search previews, profile code blocks, component modals and opaque component cont
 their normal card/code fills. Pending upload cards and their preview wells retain their
 palette surfaces in both message and forum composers, independently of chat transparency.
 
+## Material 3 Expressive variant
+
+`Variant::Material` ("Material" in the preset row) derives the whole palette from the accent
+colour: `material::palette` keeps the accent's hue and builds Material 3 tonal ramps in OKLCH,
+placing surfaces on the surface-container tones, `selected` on the secondary container and
+`accent` on the primary role. It approximates Material's HCT generator rather than matching it.
+The accent override that other presets apply is skipped, because the accent is the seed.
+
+While the variant is active (`design::expressive()`), controls that support it use spring
+motion from `crates/ui/src/motion.rs` instead of fixed-duration easing: the switch is the
+52x32 Material track with a spring-driven handle that grows while pressed, and inline buttons
+are pills that spring to a squarer corner radius while held. Springs request repaints only
+until they settle. Other presets keep their existing geometry. Controls outside `design.rs`
+(server rail tiles, the composer, menus) do not use the new motion yet.
+
 ## Brand mark and server rail
 
 The application mark is the Serein chat-wave (`assets/brand/`), not a third-party logo. Its
