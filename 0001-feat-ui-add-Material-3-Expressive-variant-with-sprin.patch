@@ -1,0 +1,598 @@
+From bc0a25ead62ecd8cae4e5de9a737535e8e89043e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 17:37:42 -0500
+Subject: [PATCH] feat(ui): add Material 3 Expressive variant with spring
+ motion
+
+Add Variant::Material, a tonal palette generated from the accent colour,
+and a spring helper in motion.rs. The switch uses the Material 52x32 track
+with a spring-driven handle, and inline buttons morph from pill to a squarer
+radius while pressed. Other presets keep their current geometry.
+
+Not compiled against the full workspace: the palette math and spring
+convergence were checked in a standalone harness only.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_013A9GtzdnPfCT3HbWm8TAYZ
+---
+ crates/ui/src/design.rs   | 149 ++++++++++++++++++++++++++++--------
+ crates/ui/src/lib.rs      |   2 +
+ crates/ui/src/material.rs | 157 ++++++++++++++++++++++++++++++++++++++
+ crates/ui/src/motion.rs   | 118 ++++++++++++++++++++++++++++
+ docs/design.md            |  15 ++++
+ 5 files changed, 409 insertions(+), 32 deletions(-)
+ create mode 100644 crates/ui/src/material.rs
+ create mode 100644 crates/ui/src/motion.rs
+
+diff --git a/crates/ui/src/design.rs b/crates/ui/src/design.rs
+index ad8144c..39cdcc8 100644
+--- a/crates/ui/src/design.rs
++++ b/crates/ui/src/design.rs
+@@ -91,9 +91,12 @@ pub enum Variant {
+ 	Ember = 4,
+ 	Verdant = 5,
+ 	Afterglow = 6,
++	/// Material 3 Expressive: a tonal scheme generated from the accent colour, with
++	/// spring motion and shape morphing on the controls that support it.
++	Material = 7,
+ }
+ impl Variant {
+-	pub const ALL: [Variant; 7] = [
++	pub const ALL: [Variant; 8] = [
+ 		Variant::Standard,
+ 		Variant::Eclipse,
+ 		Variant::Slate,
+@@ -101,6 +104,7 @@ impl Variant {
+ 		Variant::Ember,
+ 		Variant::Verdant,
+ 		Variant::Afterglow,
++		Variant::Material,
+ 	];
+ 	pub fn label(self) -> &'static str {
+ 		match self {
+@@ -111,6 +115,7 @@ impl Variant {
+ 			Variant::Ember => "Ember",
+ 			Variant::Verdant => "Verdant",
+ 			Variant::Afterglow => "Afterglow",
++			Variant::Material => "Material",
+ 		}
+ 	}
+ 	/// Stable identifier for persistence.
+@@ -123,6 +128,7 @@ impl Variant {
+ 			Variant::Ember => "ember",
+ 			Variant::Verdant => "verdant",
+ 			Variant::Afterglow => "afterglow",
++			Variant::Material => "material",
+ 		}
+ 	}
+ 	/// Keys written by builds that shipped the previous theme names.
+@@ -135,6 +141,7 @@ impl Variant {
+ 			Variant::Ember => "crimson-moon",
+ 			Variant::Verdant => "forest",
+ 			Variant::Afterglow => "sunset",
++			Variant::Material => "material",
+ 		}
+ 	}
+ 	pub fn from_key(key: &str) -> Option<Variant> {
+@@ -242,7 +249,7 @@ pub struct Palette {
+ 	pub surface: Color32,
+ }
+ /// Dark themes' default danger red, tuned for red text and outlines on dark surfaces.
+-const DARK_DANGER: Color32 = rgb(0xef5561);
++pub(crate) const DARK_DANGER: Color32 = rgb(0xef5561);
+ /// Discord's solid count-badge and LIVE-pill red, deeper so white text stays crisp.
+ const BADGE_RED: Color32 = rgb(0xd22d39);
+ impl Palette {
+@@ -386,9 +393,22 @@ pub fn builtin_colors(dark: bool, variant: Variant) -> Palette {
+ 		Variant::Ember => gradient([0x8c2340, 0x140609], 0x41262e),
+ 		Variant::Verdant => gradient([0x2b6350, 0x081a15], 0x283934),
+ 		Variant::Afterglow => gradient([0xd9663c, 0x35205e], 0x5b3b40),
++		Variant::Material => {
++			// The accent is the seed: the whole scheme is derived from it, so the
++			// accent override below must not flatten it back to the raw colour.
++			return crate::material::palette(
++				dark,
++				primary_color().unwrap_or(DEFAULT_PRIMARY_COLOR),
++			);
++		}
+ 	};
+ 	customize(palette, primary_color())
+ }
++/// True while the Material 3 Expressive variant is active: controls then use spring
++/// motion and shape morphing instead of the house geometry.
++pub fn expressive() -> bool {
++	variant() == Variant::Material
++}
+ #[derive(Clone, Copy)]
+ struct ExtensionPalette {
+ 	colors: [Option<Color32>; 18],
+@@ -836,7 +856,7 @@ fn resolved_colors(dark: bool, variant: Variant) -> Palette {
+ 		themed_accent = theme.colors[ACCENT_FIELD].is_some();
+ 		palette = recolor(palette, theme);
+ 	}
+-	if themed_accent {
++	if themed_accent || variant == Variant::Material {
+ 		palette
+ 	} else {
+ 		customize(palette, primary_color())
+@@ -2289,7 +2309,14 @@ pub fn switch(
+ 	let description = description.map(crate::i18n::translate_if_key);
+ 	let p = palette(ui);
+ 	let width = ui.available_width();
+-	let text_width = (width - 64.0).max(80.0);
++	let expressive = expressive();
++	// Material's switch track is 52x32; the house one is 40x24.
++	let track = if expressive {
++		egui::vec2(52.0, 32.0)
++	} else {
++		egui::vec2(40.0, 24.0)
++	};
++	let text_width = (width - track.x - 24.0).max(80.0);
+ 	let title = ui.painter().layout(
+ 		label.to_owned(),
+ 		FontId::new(16.0, medium_family(ui.ctx())),
+@@ -2324,36 +2351,79 @@ pub fn switch(
+ 		painter.galley(egui::pos2(rect.left(), y), detail, p.muted);
+ 	}
+ 	let pill = egui::Rect::from_center_size(
+-		egui::pos2(rect.right() - 20.0, rect.top() + 8.0 + title.size().y / 2.0),
+-		egui::vec2(40.0, 24.0),
+-	);
+-	// The knob slides and the track tints over `animation_time`; settled switches are static.
+-	let on = ui.ctx().animate_bool_with_time_and_easing(
+-		response.id.with("switch"),
+-		*enabled,
+-		ui.style().animation_time * 1.25,
+-		egui::emath::easing::cubic_out,
+-	);
+-	let mut fill = p.base.lerp_to_gamma(p.accent, on);
+-	if !ui.is_enabled() {
+-		fill = fill.gamma_multiply(0.4);
+-	}
+-	painter.rect_filled(pill, 12, fill);
+-	painter.rect_stroke(
+-		pill,
+-		12,
+-		Stroke::new(1.0, p.border.lerp_to_gamma(fill, on)),
+-		egui::StrokeKind::Inside,
+-	);
+-	let knob = egui::pos2(
+-		egui::lerp((pill.left() + 12.0)..=(pill.right() - 12.0), on),
+-		pill.center().y,
++		egui::pos2(
++			rect.right() - track.x / 2.0,
++			rect.top() + 8.0 + title.size().y / 2.0,
++		),
++		track,
+ 	);
+-	painter.circle_filled(knob, 9.0, Color32::WHITE);
++	let radius = (track.y / 2.0) as u8;
++	if expressive {
++		// Spring-driven handle: it overshoots a little when it lands, and grows while pressed.
++		let id = response.id.with("switch");
++		let on = crate::motion::animate(
++			ui.ctx(),
++			id,
++			f32::from(u8::from(*enabled)),
++			crate::motion::Spring::SPATIAL_FAST,
++		);
++		let pressed = crate::motion::animate(
++			ui.ctx(),
++			id.with("press"),
++			f32::from(u8::from(response.is_pointer_button_down_on())),
++			crate::motion::Spring::SPATIAL_FAST,
++		);
++		// Colours never overshoot: only the handle's position and size do.
++		let tint = on.clamp(0.0, 1.0);
++		let mut fill = p.raised.lerp_to_gamma(p.accent, tint);
++		let mut handle = p.muted.lerp_to_gamma(p.accent_text, tint);
++		if !ui.is_enabled() {
++			fill = fill.gamma_multiply(0.4);
++			handle = handle.gamma_multiply(0.4);
++		}
++		painter.rect_filled(pill, radius, fill);
++		painter.rect_stroke(
++			pill,
++			radius,
++			Stroke::new(2.0 * (1.0 - tint), p.muted),
++			egui::StrokeKind::Inside,
++		);
++		let resting = egui::lerp(16.0..=24.0, tint);
++		let diameter = egui::lerp(resting..=28.0, pressed.clamp(0.0, 1.0));
++		let handle_center = egui::pos2(
++			egui::lerp((pill.left() + 16.0)..=(pill.right() - 16.0), on),
++			pill.center().y,
++		);
++		painter.circle_filled(handle_center, diameter / 2.0, handle);
++	} else {
++		// The knob slides and the track tints over `animation_time`; settled switches are static.
++		let on = ui.ctx().animate_bool_with_time_and_easing(
++			response.id.with("switch"),
++			*enabled,
++			ui.style().animation_time * 1.25,
++			egui::emath::easing::cubic_out,
++		);
++		let mut fill = p.base.lerp_to_gamma(p.accent, on);
++		if !ui.is_enabled() {
++			fill = fill.gamma_multiply(0.4);
++		}
++		painter.rect_filled(pill, radius, fill);
++		painter.rect_stroke(
++			pill,
++			radius,
++			Stroke::new(1.0, p.border.lerp_to_gamma(fill, on)),
++			egui::StrokeKind::Inside,
++		);
++		let knob = egui::pos2(
++			egui::lerp((pill.left() + 12.0)..=(pill.right() - 12.0), on),
++			pill.center().y,
++		);
++		painter.circle_filled(knob, 9.0, Color32::WHITE);
++	}
+ 	if response.has_focus() {
+ 		painter.rect_stroke(
+ 			pill.expand(3.0),
+-			15,
++			radius + 3,
+ 			Stroke::new(2.0, p.accent),
+ 			egui::StrokeKind::Outside,
+ 		);
+@@ -2438,12 +2508,27 @@ fn sized_button(ui: &mut egui::Ui, label: &str, kind: ButtonKind, full: bool) ->
+ 	} else {
+ 		text.gamma_multiply(0.5)
+ 	};
++	let radius: u8 = if expressive() {
++		// Pill at rest, squarer while held; the corner radius springs between the two and
++		// overshoots slightly on release.
++		let pill = BUTTON_HEIGHT / 2.0;
++		let held = enabled && response.is_pointer_button_down_on();
++		let t = crate::motion::animate(
++			ui.ctx(),
++			response.id.with("shape"),
++			f32::from(u8::from(held)),
++			crate::motion::Spring::SPATIAL_FAST,
++		);
++		egui::lerp(pill..=12.0, t).clamp(4.0, pill) as u8
++	} else {
++		8
++	};
+ 	let painter = ui.painter();
+-	painter.rect(rect, 8, fill, stroke, egui::StrokeKind::Inside);
++	painter.rect(rect, radius, fill, stroke, egui::StrokeKind::Inside);
+ 	if response.has_focus() {
+ 		painter.rect_stroke(
+ 			rect.expand(2.0),
+-			10,
++			radius + 2,
+ 			Stroke::new(2.0, p.accent),
+ 			egui::StrokeKind::Outside,
+ 		);
+diff --git a/crates/ui/src/lib.rs b/crates/ui/src/lib.rs
+index 9fff587..7029669 100644
+--- a/crates/ui/src/lib.rs
++++ b/crates/ui/src/lib.rs
+@@ -46,6 +46,8 @@ mod extension_server_actions;
+ mod extensions_ui;
+ mod interface_tweaks;
+ mod interface_ui;
++mod material;
++mod motion;
+ mod new_message;
+ pub mod proxy_auth;
+ mod rich_presence;
+diff --git a/crates/ui/src/material.rs b/crates/ui/src/material.rs
+new file mode 100644
+index 0000000..829e82a
+--- /dev/null
++++ b/crates/ui/src/material.rs
+@@ -0,0 +1,157 @@
++//! Material 3 colour scheme generated from a seed colour.
++//!
++//! Material's own generator works in HCT, which needs a table-driven solver. This module
++//! uses the same idea with OKLCH: keep the seed's hue, fix a chroma per palette, and pick
++//! lightness by CIE L* "tone" so tone 90 or 10 means what it does in the Material spec.
++//! The colours are close to HCT's, not identical; swap in a real HCT implementation if
++//! exact parity matters.
++use crate::design::{DARK_DANGER, Palette};
++use egui::Color32;
++
++/// Hue (radians) and chroma of a colour in OKLab.
++fn seed_hue_chroma([r, g, b]: [u8; 3]) -> (f32, f32) {
++	let lin = |c: u8| {
++		let c = f32::from(c) / 255.0;
++		if c <= 0.04045 {
++			c / 12.92
++		} else {
++			((c + 0.055) / 1.055).powf(2.4)
++		}
++	};
++	let (r, g, b) = (lin(r), lin(g), lin(b));
++	let l = (0.412_221_47 * r + 0.536_332_55 * g + 0.051_445_995 * b).cbrt();
++	let m = (0.211_903_5 * r + 0.680_699_5 * g + 0.107_396_96 * b).cbrt();
++	let s = (0.088_302_46 * r + 0.281_718_85 * g + 0.629_978_7 * b).cbrt();
++	let a = 1.977_998_5 * l - 2.428_592_2 * m + 0.450_593_7 * s;
++	let b = 0.025_904_037 * l + 0.782_771_77 * m - 0.808_675_77 * s;
++	(b.atan2(a), a.hypot(b))
++}
++
++/// CIE L* (0-100) to relative luminance.
++fn tone_to_luminance(tone: f32) -> f32 {
++	if tone > 8.0 {
++		((tone + 16.0) / 116.0).powi(3)
++	} else {
++		tone / 903.3
++	}
++}
++
++/// Linear sRGB for an OKLab colour, or None when it falls outside the sRGB gamut.
++fn oklab_to_linear(lightness: f32, a: f32, b: f32) -> Option<[f32; 3]> {
++	let l = (lightness + 0.396_337_78 * a + 0.215_803_76 * b).powi(3);
++	let m = (lightness - 0.105_561_346 * a - 0.063_854_17 * b).powi(3);
++	let s = (lightness - 0.089_484_18 * a - 1.291_485_5 * b).powi(3);
++	let rgb = [
++		4.076_741_7 * l - 3.307_711_6 * m + 0.230_969_94 * s,
++		-1.268_438 * l + 2.609_757_4 * m - 0.341_319_4 * s,
++		-0.004_196_086 * l - 0.703_418_6 * m + 1.707_614_7 * s,
++	];
++	rgb.iter()
++		.all(|c| (-0.001..=1.001).contains(c))
++		.then_some(rgb)
++}
++
++/// The colour at `tone` for a hue and chroma, with chroma reduced until it fits in sRGB.
++fn tonal(hue: f32, chroma: f32, tone: f32) -> Color32 {
++	// For a neutral, OKLab lightness is the cube root of luminance.
++	let lightness = tone_to_luminance(tone).cbrt();
++	let mut chroma = chroma;
++	let linear = loop {
++		let (a, b) = (chroma * hue.cos(), chroma * hue.sin());
++		if let Some(rgb) = oklab_to_linear(lightness, a, b) {
++			break rgb;
++		}
++		if chroma < 0.001 {
++			break [lightness.powi(3); 3];
++		}
++		chroma *= 0.92;
++	};
++	let encode = |c: f32| {
++		let c = c.clamp(0.0, 1.0);
++		let c = if c <= 0.003_130_8 {
++			c * 12.92
++		} else {
++			1.055 * c.powf(1.0 / 2.4) - 0.055
++		};
++		(c * 255.0).round() as u8
++	};
++	Color32::from_rgb(encode(linear[0]), encode(linear[1]), encode(linear[2]))
++}
++
++/// A Material 3 scheme as Serein's surface roles.
++///
++/// Surfaces step up through Material's surface-container tones; `selected` is the secondary
++/// container, which Material uses for the active navigation item. `accent` is the primary
++/// role (tone 80 in dark, 40 in light) with its on-primary text.
++pub(crate) fn palette(dark: bool, seed: [u8; 3]) -> Palette {
++	let (hue, seed_chroma) = seed_hue_chroma(seed);
++	let primary = |tone| tonal(hue, seed_chroma.max(0.12), tone);
++	let secondary = |tone| tonal(hue, 0.04, tone);
++	let tertiary = |tone| tonal(hue + 1.05, 0.06, tone);
++	let neutral = |tone| tonal(hue, 0.008, tone);
++	let neutral_variant = |tone| tonal(hue, 0.016, tone);
++	let (base, sidebar, chat, raised, hover, selected, border);
++	let (text_strong, text, muted, link, accent, accent_text);
++	let (mention_text, positive, warning, danger);
++	if dark {
++		base = neutral(4.0);
++		sidebar = neutral(8.0);
++		chat = neutral(10.0);
++		raised = neutral(17.0);
++		hover = neutral(20.0);
++		selected = secondary(30.0);
++		border = neutral_variant(30.0);
++		text_strong = neutral(93.0);
++		text = neutral_variant(82.0);
++		muted = neutral_variant(68.0);
++		link = primary(80.0);
++		accent = primary(80.0);
++		accent_text = primary(20.0);
++		mention_text = primary(90.0);
++		positive = tertiary(75.0);
++		warning = Color32::from_rgb(0xe8, 0xa3, 0x3d);
++		// Kept equal to the other dark presets so solid badges pick the same deeper red.
++		danger = DARK_DANGER;
++	} else {
++		base = neutral(90.0);
++		sidebar = neutral(94.0);
++		chat = neutral(98.0);
++		raised = neutral(92.0);
++		hover = neutral(91.0);
++		selected = secondary(86.0);
++		border = neutral_variant(80.0);
++		text_strong = neutral(8.0);
++		text = neutral_variant(25.0);
++		muted = neutral_variant(38.0);
++		link = primary(40.0);
++		accent = primary(40.0);
++		accent_text = primary(100.0);
++		mention_text = primary(30.0);
++		positive = tertiary(38.0);
++		warning = Color32::from_rgb(0xa8, 0x6a, 0x00);
++		danger = Color32::from_rgb(0xb3, 0x26, 0x1e);
++	}
++	Palette {
++		base,
++		sidebar,
++		chat,
++		raised,
++		hover,
++		selected,
++		border,
++		text_strong,
++		text,
++		muted,
++		link,
++		accent,
++		accent_text,
++		positive,
++		warning,
++		danger,
++		mention_bg: Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 76),
++		mention_text,
++		backdrop: None,
++		canvas: chat,
++		surface: sidebar,
++	}
++}
+diff --git a/crates/ui/src/motion.rs b/crates/ui/src/motion.rs
+new file mode 100644
+index 0000000..1a438d3
+--- /dev/null
++++ b/crates/ui/src/motion.rs
+@@ -0,0 +1,118 @@
++//! Spring motion for the Material 3 Expressive look.
++//!
++//! egui only ships fixed-duration easing. Expressive motion is spring physics: values can
++//! overshoot and carry velocity when the target changes mid-flight. [`animate`] keeps one
++//! spring per widget id in the context's temporary data and asks for repaints only until the
++//! spring has settled, so an idle window stays idle.
++use egui::{Context, Id};
++
++/// Damping ratio and stiffness of a unit-mass spring.
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub struct Spring {
++	pub damping: f32,
++	pub stiffness: f32,
++}
++
++#[allow(
++	dead_code,
++	reason = "the full token set; controls adopt the slower and effect springs as they migrate"
++)]
++impl Spring {
++	/// Moves things on screen (position, size, shape). Slightly under-damped, so it overshoots.
++	pub const SPATIAL_FAST: Spring = Spring::new(0.6, 800.0);
++	pub const SPATIAL: Spring = Spring::new(0.8, 380.0);
++	pub const SPATIAL_SLOW: Spring = Spring::new(0.8, 200.0);
++	/// Fades and tints. Critically damped: no overshoot, so colours never leave their range.
++	pub const EFFECTS_FAST: Spring = Spring::new(1.0, 3800.0);
++	pub const EFFECTS: Spring = Spring::new(1.0, 1600.0);
++	pub const EFFECTS_SLOW: Spring = Spring::new(1.0, 800.0);
++
++	pub const fn new(damping: f32, stiffness: f32) -> Spring {
++		Spring { damping, stiffness }
++	}
++}
++
++#[derive(Clone, Copy, Debug)]
++struct State {
++	value: f32,
++	velocity: f32,
++}
++
++/// Longest step fed to the integrator; a stalled frame must not blow the spring up.
++const MAX_FRAME: f32 = 1.0 / 30.0;
++/// Integrator sub-step. Stiff effect springs need a small step to stay stable.
++const SUB_STEP: f32 = 1.0 / 480.0;
++const SETTLE_DISTANCE: f32 = 0.001;
++const SETTLE_SPEED: f32 = 0.01;
++
++/// Advance `state` toward `target` by `dt` seconds. Returns true once it has settled on it.
++fn step(state: &mut State, target: f32, spring: Spring, dt: f32) -> bool {
++	let damping_coefficient = 2.0 * spring.damping * spring.stiffness.sqrt();
++	let mut remaining = dt.clamp(0.0, MAX_FRAME);
++	while remaining > 0.0 {
++		let h = remaining.min(SUB_STEP);
++		let acceleration =
++			spring.stiffness * (target - state.value) - damping_coefficient * state.velocity;
++		// Semi-implicit Euler: stable for the stiffness range used here.
++		state.velocity += acceleration * h;
++		state.value += state.velocity * h;
++		remaining -= h;
++	}
++	let settled =
++		(target - state.value).abs() < SETTLE_DISTANCE && state.velocity.abs() < SETTLE_SPEED;
++	if settled {
++		state.value = target;
++		state.velocity = 0.0;
++	}
++	settled
++}
++
++/// The spring value for `id` this frame, easing toward `target`.
++///
++/// The first call for an id starts at `target` without animating, so a widget that appears
++/// already switched on does not slide in. A zero `animation_time` in the active style (the
++/// app's reduced-motion setting) snaps straight to the target.
++pub fn animate(ctx: &Context, id: Id, target: f32, spring: Spring) -> f32 {
++	if ctx.style().animation_time <= 0.0 {
++		return target;
++	}
++	let mut state = ctx
++		.data(|data| data.get_temp::<State>(id))
++		.unwrap_or(State {
++			value: target,
++			velocity: 0.0,
++		});
++	let dt = ctx.input(|input| input.stable_dt);
++	let settled = step(&mut state, target, spring, dt);
++	// Kept even when settled: the resting value is where the next change starts from.
++	ctx.data_mut(|data| data.insert_temp(id, state));
++	if !settled {
++		ctx.request_repaint();
++	}
++	state.value
++}
++
++#[cfg(test)]
++mod tests {
++	use super::*;
++
++	#[test]
++	fn every_spring_settles_on_its_target_and_stops() {
++		for spring in [
++			Spring::SPATIAL_FAST,
++			Spring::SPATIAL,
++			Spring::SPATIAL_SLOW,
++			Spring::EFFECTS_FAST,
++			Spring::EFFECTS,
++			Spring::EFFECTS_SLOW,
++		] {
++			let mut state = State {
++				value: 0.0,
++				velocity: 0.0,
++			};
++			let frames = (0..600).take_while(|_| !step(&mut state, 1.0, spring, 1.0 / 60.0));
++			assert!(frames.count() < 600, "{spring:?} never settled");
++			assert_eq!(state.value, 1.0);
++		}
++	}
++}
+diff --git a/docs/design.md b/docs/design.md
+index 408d71f..bb3112d 100644
+--- a/docs/design.md
++++ b/docs/design.md
+@@ -37,6 +37,21 @@ Search previews, profile code blocks, component modals and opaque component cont
+ their normal card/code fills. Pending upload cards and their preview wells retain their
+ palette surfaces in both message and forum composers, independently of chat transparency.
+ 
++## Material 3 Expressive variant
++
++`Variant::Material` ("Material" in the preset row) derives the whole palette from the accent
++colour: `material::palette` keeps the accent's hue and builds Material 3 tonal ramps in OKLCH,
++placing surfaces on the surface-container tones, `selected` on the secondary container and
++`accent` on the primary role. It approximates Material's HCT generator rather than matching it.
++The accent override that other presets apply is skipped, because the accent is the seed.
++
++While the variant is active (`design::expressive()`), controls that support it use spring
++motion from `crates/ui/src/motion.rs` instead of fixed-duration easing: the switch is the
++52x32 Material track with a spring-driven handle that grows while pressed, and inline buttons
++are pills that spring to a squarer corner radius while held. Springs request repaints only
++until they settle. Other presets keep their existing geometry. Controls outside `design.rs`
++(server rail tiles, the composer, menus) do not use the new motion yet.
++
+ ## Brand mark and server rail
+ 
+ The application mark is the Serein chat-wave (`assets/brand/`), not a third-party logo. Its
+-- 
+2.43.0
+

@@ -73,7 +73,7 @@ fn step(state: &mut State, target: f32, spring: Spring, dt: f32) -> bool {
 /// already switched on does not slide in. A zero `animation_time` in the active style (the
 /// app's reduced-motion setting) snaps straight to the target.
 pub fn animate(ctx: &Context, id: Id, target: f32, spring: Spring) -> f32 {
-	if ctx.style().animation_time <= 0.0 {
+	if ctx.style_of(ctx.theme()).animation_time <= 0.0 {
 		return target;
 	}
 	let mut state = ctx
