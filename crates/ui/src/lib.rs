@@ -1199,7 +1199,7 @@ impl MessagingUi {
 					voice_channel: None,
 					channel: None,
 					embed: model::Embed {
-						title: Some("Serein community".into()),
+						title: Some("Marshmellow community".into()),
 						..Default::default()
 					},
 				})),
@@ -4862,7 +4862,7 @@ impl MessagingUi {
 			!self.hide_title_bar
 		}
 	}
-	/// Linux only: Serein draws its own GTK 4 style header bar instead of the system one.
+	/// Linux only: Marshmellow draws its own GTK 4 style header bar instead of the system one.
 	pub fn uses_custom_title_bar(&self) -> bool {
 		cfg!(target_os = "linux") && self.custom_title_bar
 	}

@@ -593,7 +593,7 @@ fn main() -> eframe::Result {
 			if cfg!(target_os = "macos") {
 				// Discord-style inline title bar: traffic lights sit over the app's own strip.
 				// eframe swaps in the egui logo when no icon is set; an empty icon keeps the
-				// bundle's Serein.icns in the Dock and app switcher.
+				// bundle's Marshmellow.icns in the Dock and app switcher.
 				builder
 					.with_icon(egui::IconData::default())
 					.with_title_shown(false)
@@ -627,7 +627,7 @@ fn main() -> eframe::Result {
 		..Default::default()
 	};
 	let result = eframe::run_native(
-		"Serein",
+		"Marshmellow",
 		options,
 		Box::new(move |cc| {
 			let mut desktop = Desktop::new(
@@ -660,7 +660,7 @@ fn main() -> eframe::Result {
 	// Quitting mid-share drops media workers that are still closing their encoders, and
 	// NVIDIA's exit handlers crash or deadlock if the process exits during that teardown.
 	if !discord_voice::wait_for_media_threads(std::time::Duration::from_secs(5)) {
-		eprintln!("Screen or camera capture was still closing when Serein exited.");
+		eprintln!("Screen or camera capture was still closing when Marshmellow exited.");
 	}
 	result
 }
@@ -1042,7 +1042,7 @@ impl Drop for FrameMetrics {
 			let _ = writeln!(
 				std::io::stderr(),
 				// Preserve the legacy diagnostic label; elapsed callback time is wall time.
-				"[Serein frames] callbacks={} without_input={} cpu_us_buckets(1000,2000,4000,8000,16000,32000,64000,above)={:?} reflows(total,consecutive)={:?}",
+				"[Marshmellow frames] callbacks={} without_input={} cpu_us_buckets(1000,2000,4000,8000,16000,32000,64000,above)={:?} reflows(total,consecutive)={:?}",
 				self.frames,
 				self.inputless,
 				self.buckets,
@@ -2060,7 +2060,7 @@ impl Desktop {
 			let (found, wake) = (gsync.clone(), cc.egui_ctx.clone());
 			platform::gsync::detect(move |enabled| {
 				if enabled {
-					eprintln!("[Serein] G-SYNC display detected");
+					eprintln!("[Marshmellow] G-SYNC display detected");
 					found.store(true, std::sync::atomic::Ordering::Relaxed);
 					wake.request_repaint();
 				}
@@ -2915,7 +2915,7 @@ impl Desktop {
 	fn diagnostics_report(&self, ctx: &egui::Context) -> String {
 		use std::fmt::Write;
 		let mut report = String::with_capacity(24 * 1024);
-		report.push_str("# Serein diagnostics\n\n");
+		report.push_str("# Marshmellow diagnostics\n\n");
 		report.push_str(&self.messaging.diagnostic_info(ctx));
 		report.push('\n');
 		let log_file = diagnostics::path()
@@ -3366,7 +3366,7 @@ impl Desktop {
 			}
 		}
 	}
-	/// Whether closing may keep Serein running without a window. macOS apps stay in the Dock
+	/// Whether closing may keep Marshmellow running without a window. macOS apps stay in the Dock
 	/// until quit, and the Dock icon reopens the window.
 	fn background_available(&self) -> bool {
 		cfg!(target_os = "macos") || self.tray_available()
@@ -5078,14 +5078,14 @@ impl Desktop {
 						if self.messaging.custom_font.busy && self.font_picker.is_none() {
 							self.messaging.custom_font.busy = false;
 							self.messaging.custom_font.status =
-								"Local storage worker stopped. Restart Serein to save fonts.";
+								"Local storage worker stopped. Restart Marshmellow to save fonts.";
 						}
 						if self.messaging.channel_preferences_reload
 							|| self.messaging.channel_preferences_load_pending
 						{
 							self.messaging.channel_preferences_reload = false;
 							self.messaging.channel_preferences_load_pending = false;
-							self.messaging.channel_preferences_status = "Local storage worker stopped; restart Serein to restore channel preferences.";
+							self.messaging.channel_preferences_status = "Local storage worker stopped; restart Marshmellow to restore channel preferences.";
 						}
 						presence_cache_stopped = self.presence_load_pending;
 						break;
@@ -5392,7 +5392,7 @@ impl Desktop {
 							"Login saved in the OS credential store"
 						}
 						platform::Saved::Plaintext => {
-							"No OS keyring found. The login is saved in a private file in Serein's data folder."
+							"No OS keyring found. The login is saved in a private file in Marshmellow's data folder."
 						}
 					}
 				}
@@ -5772,7 +5772,7 @@ impl Desktop {
 					// One extra fixed-label terminal line per enabled scope; closed stderr is OK.
 					let _ = writeln!(
 						std::io::stderr(),
-						"[Serein {scope}] Session stopped: {}",
+						"[Marshmellow {scope}] Session stopped: {}",
 						failure.label()
 					);
 				}
@@ -6028,7 +6028,7 @@ impl eframe::App for Desktop {
 	}
 	fn repaint_on_device_event(&mut self, event: &winit::event::DeviceEvent) -> Option<bool> {
 		// Raw motion duplicates the window's cursor events, which still repaint for hover;
-		// Serein never reads it (`PointerState::motion`).
+		// Marshmellow never reads it (`PointerState::motion`).
 		matches!(event, winit::event::DeviceEvent::MouseMotion { .. }).then_some(false)
 	}
 	fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -6897,7 +6897,7 @@ impl eframe::App for Desktop {
 						ui.painter().rect_filled(rect, 8, p.accent);
 						ui::icons::paint(
 							ui.painter(),
-							ui::icons::Icon::Serein,
+							ui::icons::Icon::Marshmellow,
 							rect.shrink(7.0),
 							p.accent_text,
 						);

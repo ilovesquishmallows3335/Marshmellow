@@ -78,7 +78,7 @@ fn tonal(hue: f32, chroma: f32, tone: f32) -> Color32 {
 	Color32::from_rgb(encode(linear[0]), encode(linear[1]), encode(linear[2]))
 }
 
-/// A Material 3 scheme as Serein's surface roles.
+/// A Material 3 scheme as Marshmellow's surface roles.
 ///
 /// Surfaces step up through Material's surface-container tones; `selected` is the secondary
 /// container, which Material uses for the active navigation item. `accent` is the primary

@@ -306,7 +306,7 @@ impl ksni::Tray for Item {
 		"serein".into()
 	}
 	fn title(&self) -> String {
-		"Serein".into()
+		"Marshmellow".into()
 	}
 	fn icon_name(&self) -> String {
 		// Empty when no host theme icon exists. The pixmap then carries the mark.

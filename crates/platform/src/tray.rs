@@ -110,9 +110,9 @@ impl MenuState {
 		if !rows.is_empty() {
 			rows.push(Row::Separator);
 		}
-		rows.push(action("Show Serein", Event::Show));
+		rows.push(action("Show Marshmellow", Event::Show));
 		#[cfg(target_os = "linux")]
-		rows.push(action("Minimize Serein", Event::Minimize));
+		rows.push(action("Minimize Marshmellow", Event::Minimize));
 		rows.push(Row::Separator);
 		rows.push(Row::Action {
 			label: "Mute",
@@ -134,7 +134,7 @@ impl MenuState {
 			enabled: self.call.is_some(),
 		});
 		rows.push(Row::Separator);
-		rows.push(action("Quit Serein", Event::Quit));
+		rows.push(action("Quit Marshmellow", Event::Quit));
 		rows
 	}
 }

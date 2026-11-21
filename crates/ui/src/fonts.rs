@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex, Weak};
 
 pub const MAX_CUSTOM_FONT_BYTES: usize = 32 * 1024 * 1024;
 const CUSTOM: [&str; 3] = [
-	"Serein Custom",
-	"Serein Custom Medium",
-	"Serein Custom SemiBold",
+	"Marshmellow Custom",
+	"Marshmellow Custom Medium",
+	"Marshmellow Custom SemiBold",
 ];
 const DEFINITIONS_KEY: &str = "serein-font-definitions";
 
@@ -417,9 +417,7 @@ const MATH: &[u8] = include_bytes!("../../../assets/fonts/NotoSansMath-Regular.o
 /// Arabic and Math faces all lack that scalar, so without this fallback egui
 /// paints Inter's `.notdef` (a stack of horizontal bars) wherever it appears.
 const SYMBOLS: &[u8] = include_bytes!("../../../assets/fonts/NotoSansSymbols2-Regular.ttf");
-const INTER: &[u8] = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
-const INTER_MEDIUM: &[u8] = include_bytes!("../../../assets/fonts/Inter-Medium.ttf");
-const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
+const ROBOTO: &[u8] = include_bytes!("../../../assets/fonts/Roboto.ttf");
 
 /// Discord display-name fonts by `display_name_styles.font_id`. Each is installed the first time
 /// a styled name needs it, so sessions with name styles off never parse them. Néo-Castel (7) is
@@ -428,72 +426,72 @@ const INTER_SEMIBOLD: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBo
 const NAME_FONTS: [(u32, &str, &[u8]); 14] = [
 	(
 		1,
-		"Serein Name Bangers",
+		"Marshmellow Name Bangers",
 		include_bytes!("../../../assets/fonts/Bangers-Regular.ttf"),
 	),
 	(
 		2,
-		"Serein Name BioRhyme",
+		"Marshmellow Name BioRhyme",
 		include_bytes!("../../../assets/fonts/BioRhyme.ttf"),
 	),
 	(
 		3,
-		"Serein Name Cherry Bomb",
+		"Marshmellow Name Cherry Bomb",
 		include_bytes!("../../../assets/fonts/CherryBombOne-Regular.ttf"),
 	),
 	(
 		4,
-		"Serein Name Chicle",
+		"Marshmellow Name Chicle",
 		include_bytes!("../../../assets/fonts/Chicle-Regular.ttf"),
 	),
 	(
 		5,
-		"Serein Name Compagnon",
+		"Marshmellow Name Compagnon",
 		include_bytes!("../../../assets/fonts/Compagnon-Roman.otf"),
 	),
 	(
 		6,
-		"Serein Name MuseoModerno",
+		"Marshmellow Name MuseoModerno",
 		include_bytes!("../../../assets/fonts/MuseoModerno.ttf"),
 	),
 	(
 		8,
-		"Serein Name Pixelify",
+		"Marshmellow Name Pixelify",
 		include_bytes!("../../../assets/fonts/PixelifySans.ttf"),
 	),
 	(
 		9,
-		"Serein Name Ribes",
+		"Marshmellow Name Ribes",
 		include_bytes!("../../../assets/fonts/Ribes-Regular.otf"),
 	),
 	(
 		10,
-		"Serein Name Sinistre",
+		"Marshmellow Name Sinistre",
 		include_bytes!("../../../assets/fonts/Sinistre-Regular.otf"),
 	),
 	(
 		12,
-		"Serein Name Zilla Slab",
+		"Marshmellow Name Zilla Slab",
 		include_bytes!("../../../assets/fonts/ZillaSlab-Regular.ttf"),
 	),
 	(
 		13,
-		"Serein Name Playpen Sans",
+		"Marshmellow Name Playpen Sans",
 		include_bytes!("../../../assets/fonts/PlaypenSans.ttf"),
 	),
 	(
 		14,
-		"Serein Name Orbitron",
+		"Marshmellow Name Orbitron",
 		include_bytes!("../../../assets/fonts/Orbitron.ttf"),
 	),
 	(
 		15,
-		"Serein Name New Rocker",
+		"Marshmellow Name New Rocker",
 		include_bytes!("../../../assets/fonts/NewRocker-Regular.ttf"),
 	),
 	(
 		16,
-		"Serein Name Kalam",
+		"Marshmellow Name Kalam",
 		include_bytes!("../../../assets/fonts/Kalam-Regular.ttf"),
 	),
 ];
@@ -694,7 +692,7 @@ fn add_fallback(definitions: &mut FontDefinitions, name: &str, data: FontData) {
 			.push(name.into());
 	}
 	for (family, list) in &mut definitions.families {
-		if matches!(family, FontFamily::Name(family) if family.starts_with("Serein Name ")) {
+		if matches!(family, FontFamily::Name(family) if family.starts_with("Marshmellow Name ")) {
 			list.push(name.into());
 		}
 	}
@@ -725,26 +723,26 @@ fn cjk() -> Vec<u8> {
 
 fn definitions(with_cjk: bool) -> FontDefinitions {
 	let mut definitions = FontDefinitions::default();
-	// Inter leads proportional text; two heavier faces provide Discord-style emphasis
-	// (egui has no synthetic bold). Each weight family falls back to egui's defaults.
+	// Roboto is the reference Material 3 text family. One variable face supplies the
+	// regular, medium and semibold instances without loading three copies into memory.
 	let weights = [
-		(FontFamily::Proportional, "Inter", INTER),
+		(FontFamily::Proportional, "Roboto", 400.0),
 		(
 			FontFamily::Name(crate::design::MEDIUM.into()),
-			"Inter Medium",
-			INTER_MEDIUM,
+			"Roboto Medium",
+			500.0,
 		),
 		(
 			FontFamily::Name(crate::design::SEMIBOLD.into()),
-			"Inter SemiBold",
-			INTER_SEMIBOLD,
+			"Roboto SemiBold",
+			600.0,
 		),
 	];
 	let defaults = definitions.families[&FontFamily::Proportional].clone();
-	for (family, name, data) in weights {
-		definitions
-			.font_data
-			.insert(name.into(), latin(data).into());
+	for (family, name, weight) in weights {
+		let mut data = latin(ROBOTO);
+		data.tweak.coords = egui::epaint::text::VariationCoords::new([(b"wght", weight)]);
+		definitions.font_data.insert(name.into(), data.into());
 		let list = definitions.families.entry(family).or_default();
 		list.retain(|existing| !defaults.contains(existing));
 		list.insert(0, name.into());
@@ -836,7 +834,7 @@ mod tests {
 					fonts
 						.definitions()
 						.font_data
-						.contains_key("Serein Name Kalam")
+						.contains_key("Marshmellow Name Kalam")
 				}));
 			})
 			.drop_without_applying_deltas();
@@ -845,8 +843,8 @@ mod tests {
 		let family = families[1].clone().expect("installed on the next pass");
 		ctx.run_ui(Default::default(), |ui| {
 			let list = &ui.fonts(|fonts| fonts.definitions().families[&family].clone());
-			assert_eq!(list[0], "Serein Name Bangers");
-			assert!(list.iter().any(|face| face == "Inter Medium"));
+			assert_eq!(list[0], "Marshmellow Name Bangers");
+			assert!(list.iter().any(|face| face == "Roboto Medium"));
 			assert!(list.iter().any(|face| face == "Noto Sans Arabic"));
 			ui.label(egui::RichText::new("Synthetic name").family(family.clone()));
 		})
@@ -865,12 +863,12 @@ mod tests {
 		}
 		let custom = CustomFont {
 			name: "Synthetic".into(),
-			data: FontData::from_static(INTER),
+			data: FontData::from_static(ROBOTO),
 		};
-		let family = FontFamily::Name("Serein Name Bangers".into());
+		let family = FontFamily::Name("Marshmellow Name Bangers".into());
 		apply_custom(&ctx, Some(&custom));
 		let list = ctx.fonts(|fonts| fonts.definitions().families[&family].clone());
-		assert_eq!(&list[..2], ["Serein Name Bangers", CUSTOM[1]]);
+		assert_eq!(&list[..2], ["Marshmellow Name Bangers", CUSTOM[1]]);
 		apply_custom(&ctx, None);
 		ctx.run_ui(Default::default(), |ui| {
 			let definitions = ui.fonts(|fonts| fonts.definitions().clone());
@@ -914,9 +912,7 @@ mod tests {
 			CJK_ZSTD.len()
 				+ ARABIC.len()
 				+ MATH.len() + SYMBOLS.len()
-				+ INTER.len()
-				+ INTER_MEDIUM.len()
-				+ INTER_SEMIBOLD.len()
+				+ ROBOTO.len()
 				<= 16 * 1024 * 1024
 		);
 		let collection = cjk();

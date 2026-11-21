@@ -1,12 +1,16 @@
 # Marshmellow
 
+<p align="center">
+  <img src="assets/brand/marshmellow-1024.png" alt="Marshmellow logo" width="160">
+</p>
+
 A fork of [Serein](https://github.com/ViceVerse-cz/Serein), the native Rust/egui Discord client, with an experimental **Material 3 Expressive** look.
 
 > **Status: experimental.** The Material preset compiles against the pinned egui and passes
 > type-checking, but it has not had a full visual review, and only a few controls use the new
 > motion so far. Expect rough edges.
 
-## What's different from Serein
+## What's different from upstream
 
 Everything else is upstream Serein. This fork adds one preset and the pieces it needs:
 
