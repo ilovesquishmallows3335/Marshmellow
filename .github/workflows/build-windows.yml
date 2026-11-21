@@ -1,0 +1,74 @@
+name: Build Windows installer
+
+# Builds the app with the MSVC toolchain and packs the repo's own NSIS installer
+# (packaging/windows/installer.nsi), plus a portable zip. Run it from the Actions tab, or push a
+# tag such as v0.1.0 to also attach both files to a GitHub release. The installer is per-user,
+# so it needs no administrator password.
+on:
+  workflow_dispatch:
+    inputs:
+      arm64:
+        description: Also build for Windows on ARM
+        type: boolean
+        default: false
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.arm64 && '["windows-latest","windows-11-arm"]' || '["windows-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+      - name: Build app and installer
+        run: cargo xtask package
+      - name: Collect assets
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory release-assets | Out-Null
+          $ref = $env:GITHUB_REF_NAME -replace '[\\/]', '-'
+          $asset = "marshmellow-$ref-windows-$($env:RUNNER_ARCH.ToLower())"
+          $installer = Get-ChildItem "dist-installer/*-setup.exe" | Select-Object -First 1
+          if (-not $installer) { throw "No installer was built. Check that NSIS installed." }
+          Copy-Item $installer.FullName "release-assets/$asset-setup.exe"
+          Compress-Archive -Path "dist/*" -DestinationPath "release-assets/$asset-portable.zip"
+          Get-ChildItem release-assets | Format-Table Name, Length
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: marshmellow-windows-${{ runner.arch }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: marshmellow-windows-*
+          merge-multiple: true
+          path: assets
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Another workflow may have created the release first; then just add the files.
+          gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" --generate-notes ||
+            gh release upload "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --clobber
